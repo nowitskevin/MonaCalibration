@@ -122,10 +122,24 @@ void createCalibFile(string runNumber){
 	b_Charge->Fill();
 	b_I->Fill();
 	}
-	cout << endl << "done. Closing files." << endl;
+	cout << endl << Form("done with run%s. Closing files.",runNumber.c_str()) << endl;
 	//close files
 	tCal->Write();
 	fCal->Close();
 	fRaw->Close();
 	
+}
+
+// LOOP to calibrate MULTIPLE FILES
+//---------------------------------------------------------------------------------
+void createCalibFileLoop(vector<string> runNumbers){
+
+	cout << "Calibrating a batch of " << runNumbers.size() << " files." << endl;
+
+	for (int s=0; s<runNumbers.size(); s++){
+		createCalibFile(runNumbers[s]);
+	}
+	
+	cout << "Batch MoNA calibration complete." << endl; 
+
 }
