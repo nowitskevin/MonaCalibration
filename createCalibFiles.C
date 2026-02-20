@@ -6,7 +6,7 @@ void createCalibFile(string runNumber){
 	const int nVert  = 16;
 	const int nSides = 2;
 	//open raw file
-	TFile *fRaw = TFile::Open(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%s.root",runNumber.c_str()));
+	TFile *fRaw = TFile::Open(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%s_reglom.root",runNumber.c_str()));
 	TTree *tRaw = (TTree*)fRaw->Get("t");
 	cout << Form("Writing MoNA-calibrated file of run%s",runNumber.c_str()) << endl;
 	
