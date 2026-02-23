@@ -1,14 +1,14 @@
 // This file creates a MoNA-calibrated ROOT file out of the raw data.
 // Kevin Eisenberg, 2026
 
-void createCalibFile(string runNumber){
+void createCalibFile(int runNumber){
 	const int nWalls = 9;
 	const int nVert  = 16;
 	const int nSides = 2;
 	//open raw file
-	TFile *fRaw = TFile::Open(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%s_reglom.root",runNumber.c_str()));
+	TFile *fRaw = TFile::Open(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_reglom.root",runNumber));
 	TTree *tRaw = (TTree*)fRaw->Get("t");
-	cout << Form("Writing MoNA-calibrated file of run%s",runNumber.c_str()) << endl;
+	cout << Form("Writing MoNA-calibrated file of run%d",runNumber) << endl;
 	
 	//open pulser params
 	TTree *pulserparams = new TTree("pulserparams","pulserparams");
@@ -57,6 +57,7 @@ void createCalibFile(string runNumber){
 		pulserparams->GetEntry(i);
 		int index = xPuls*nVert*nSides + yPuls*nSides + zPuls;
 		pulserSlopes[index] = slopePuls;
+		cout << "Pulser value: " << slopePuls << endl;
 	}
 	for (int i=0; i<nPositions; i++){
 		posparams->GetEntry(i);
@@ -74,7 +75,7 @@ void createCalibFile(string runNumber){
 
 	//create new file
 	cout << "creating output calibrated file" << endl;
-	TFile *fCal = new TFile(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%s_monaCalibrated.root",runNumber.c_str()),"RECREATE");
+	TFile *fCal = new TFile(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_monaCalibrated_bash.root",runNumber),"RECREATE");
 	TTree *tCal = tRaw->CloneTree(-1,"fast");
 	
 	UShort_t time[2][18][16]; UShort_t light[2][18][16];
@@ -82,20 +83,25 @@ void createCalibFile(string runNumber){
 	tCal->SetBranchAddress("light[2][18][16]",light);
 
 	//set new branch addresses
-	double timecal[2][18][16]; //in ns
-	double position[18][16]; //in cm
-	double charge[2][18][16]; //in MeVee
-	int eventNumber; //for tracking
+	double timecal[2][nWalls][nVert]; //in ns
+	double position[nWalls][nVert]; //in cm
+	double charge[2][nWalls][nVert]; //in MeVee
+	double normEvtNum; //for tracking events
+	int runNum = runNumber; //for tracking runs
 
-	TBranch *b_Time = tCal->Branch("timecal",timecal,"timecal[2][18][16]/D");
-	TBranch *b_Pos = tCal->Branch("position",position,"position[18][16]/D");
-	TBranch *b_Charge = tCal->Branch("charge",charge,"charge[2][18][16]/D");
-	TBranch *b_I = tCal->Branch("eventNumber",&eventNumber,"eventNumber/I");
+	TBranch *b_Time = tCal->Branch("timecal",timecal,"timecal[2][9][16]/D");
+	TBranch *b_Pos = tCal->Branch("position",position,"position[9][16]/D");
+	TBranch *b_Charge = tCal->Branch("charge",charge,"charge[2][9][16]/D");
+	TBranch *b_I = tCal->Branch("normEvtNum",&normEvtNum,"normEvtNum/D");
+	TBranch *b_R = tCal->Branch("runNum",&runNum,"runNum/I");
 
 	//main loop
 	cout << "beginning calibrations. Events calibrated:" << endl;
 	int fullIndex; int truncIndex;
-	for (int i=0; i<nEvents; i++){
+	cout << "Events: " << nEvents << endl;
+
+
+	for (Long64_t i=0; i<nEvents; i++){
 		tCal->GetEntry(i);
 		if (i%10000 == 0){cout << "\r" << i << flush;}
 		
@@ -115,31 +121,18 @@ void createCalibFile(string runNumber){
 				}
 			}
 		}
-		eventNumber = i;
+		normEvtNum = (double(i) * 1000000)/nEvents;
 
 	b_Time->Fill();
 	b_Pos->Fill();
 	b_Charge->Fill();
 	b_I->Fill();
+	b_R->Fill();
 	}
-	cout << endl << Form("done with run%s. Closing files.",runNumber.c_str()) << endl;
+	cout << endl << Form("done with run%d. Closing files.",runNumber) << endl;
 	//close files
 	tCal->Write();
 	fCal->Close();
 	fRaw->Close();
 	
-}
-
-// LOOP to calibrate MULTIPLE FILES
-//---------------------------------------------------------------------------------
-void createCalibFileLoop(vector<string> runNumbers){
-
-	cout << "Calibrating a batch of " << runNumbers.size() << " files." << endl;
-
-	for (int s=0; s<runNumbers.size(); s++){
-		createCalibFile(runNumbers[s]);
-	}
-	
-	cout << "Batch MoNA calibration complete." << endl; 
-
 }
