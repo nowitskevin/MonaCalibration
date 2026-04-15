@@ -1,12 +1,14 @@
 // This file creates a MoNA-calibrated ROOT file out of the raw data.
 // Kevin Eisenberg, 2026
+#include <vector>
+#include <cmath>
 
 void createCalibFile(int runNumber){
 	const int nWalls = 9;
 	const int nVert  = 16;
 	const int nSides = 2;
 	//open raw file
-	TFile *fRaw = TFile::Open(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_reglom.root",runNumber));
+	TFile *fRaw = TFile::Open(Form("/mnt/analysis/e23033/analysis/kevin/uncalRootFiles/run%d_reglom.root",runNumber));
 	TTree *tRaw = (TTree*)fRaw->Get("t");
 	cout << Form("Writing MoNA-calibrated file of run%d",runNumber) << endl;
 	
@@ -57,7 +59,6 @@ void createCalibFile(int runNumber){
 		pulserparams->GetEntry(i);
 		int index = xPuls*nVert*nSides + yPuls*nSides + zPuls;
 		pulserSlopes[index] = slopePuls;
-		cout << "Pulser value: " << slopePuls << endl;
 	}
 	for (int i=0; i<nPositions; i++){
 		posparams->GetEntry(i);
@@ -75,63 +76,96 @@ void createCalibFile(int runNumber){
 
 	//create new file
 	cout << "creating output calibrated file" << endl;
-	TFile *fCal = new TFile(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_monaCalibrated_bash.root",runNumber),"RECREATE");
-	TTree *tCal = tRaw->CloneTree(-1,"fast");
-	
+	TFile *fCal = new TFile(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_MonaCal.root",runNumber),"RECREATE");
+	TTree *tCal = tRaw->CloneTree(0);
+	TTree *tHits = new TTree("tHits","Nonzero hits");
+
 	UShort_t time[2][18][16]; UShort_t light[2][18][16];
-	tCal->SetBranchAddress("time[2][18][16]",time);
-	tCal->SetBranchAddress("light[2][18][16]",light);
+	tRaw->SetBranchAddress("t[2][18][16]",time);
+	tRaw->SetBranchAddress("q[2][18][16]",light);
 
 	//set new branch addresses
-	double timecal[2][nWalls][nVert]; //in ns
-	double position[nWalls][nVert]; //in cm
-	double charge[2][nWalls][nVert]; //in MeVee
-	double normEvtNum; //for tracking events
-	int runNum = runNumber; //for tracking runs
+	std::vector<int> vec_x, vec_y;
+	std::vector<double> vec_tAvg, vec_qAvg, vec_pos;
+	std::vector<double> vec_tL, vec_tR, vec_qL, vec_qR;
+	double normEvtNum;
+	int evtNum;
+	int runNum = runNumber;
+	int nHits;  // multiplicity - handy to have
 
-	TBranch *b_Time = tCal->Branch("timecal",timecal,"timecal[2][9][16]/D");
-	TBranch *b_Pos = tCal->Branch("position",position,"position[9][16]/D");
-	TBranch *b_Charge = tCal->Branch("charge",charge,"charge[2][9][16]/D");
-	TBranch *b_I = tCal->Branch("normEvtNum",&normEvtNum,"normEvtNum/D");
-	TBranch *b_R = tCal->Branch("runNum",&runNum,"runNum/I");
-
+	tHits->Branch("x", &vec_x);
+	tHits->Branch("y", &vec_y);
+	tHits->Branch("tAvg", &vec_tAvg);
+	tHits->Branch("qAvg", &vec_qAvg);
+	tHits->Branch("pos", &vec_pos);
+	tHits->Branch("tL", &vec_tL);
+	tHits->Branch("tR", &vec_tR);
+	tHits->Branch("qL", &vec_qL);
+	tHits->Branch("qR", &vec_qR);
+	tHits->Branch("nHits", &nHits, "nHits/I");
+	tHits->Branch("normEvtNum", &normEvtNum, "normEvtNum/D");
+	tHits->Branch("evtNum", &evtNum, "evtNum/I");
+	tHits->Branch("runNum", &runNum, "runNum/I");
+		
 	//main loop
 	cout << "beginning calibrations. Events calibrated:" << endl;
-	int fullIndex; int truncIndex;
+	int leftIndex, rightIndex; int truncIndex;
 	cout << "Events: " << nEvents << endl;
 
 
-	for (Long64_t i=0; i<nEvents; i++){
-		tCal->GetEntry(i);
+	for (Long64_t i=0; i<nEvents; i++){//loop
+		tRaw->GetEntry(i);
+
+		vec_x.clear(); vec_y.clear();
+    		vec_tAvg.clear(); vec_qAvg.clear(); vec_pos.clear();
+    		vec_tL.clear(); vec_tR.clear();
+    		vec_qL.clear(); vec_qR.clear();
+
 		if (i%10000 == 0){cout << "\r" << i << flush;}
-		
-		for (int xi=0; xi<nWalls; xi++){
-			for (int yi=0; yi<nVert; yi++){
-				for (int zi=0; zi<nSides; zi++){
-					fullIndex = xi*nVert*nSides + yi*nSides + zi;
+		for (int xi=0; xi<nWalls; xi++){//x
+			for (int yi=0; yi<nVert; yi++){//y
+				if ((time[0][xi][yi] > 0) && (time[1][xi][yi] > 0) && (light[0][xi][yi] > 0) && (light[1][xi][yi] > 0)){//if
+	
+					leftIndex = xi*nVert*nSides + yi*nSides;
+					rightIndex = leftIndex + 1;
 					truncIndex = xi*nVert + yi;
-					
-					timecal[zi][xi][yi] = pulserSlopes[fullIndex]*time[zi][xi][yi];
-					if (zi==1){
-						position[xi][yi] = posSlopes[truncIndex]*(timecal[zi-1][xi][yi]-timecal[zi][xi][yi])+posIntercepts[truncIndex];
-					}
 
-					charge[zi][xi][yi] = chargeSlopes[fullIndex]*light[zi][xi][yi]+chargeIntercepts[fullIndex];
+					double tL = pulserSlopes[leftIndex]*time[0][xi][yi];
+					double tR = pulserSlopes[rightIndex]*time[1][xi][yi];
+					double qL = chargeSlopes[leftIndex]*light[0][xi][yi]+chargeIntercepts[leftIndex];
+					double qR = chargeSlopes[rightIndex]*light[1][xi][yi]+chargeIntercepts[rightIndex];
 					
-				}
-			}
+					double position = posSlopes[truncIndex]*(tL - tR)+posIntercepts[truncIndex];
+					double tAvg = (tL+tR)/2.0;
+					
+					if (qL>0 && qR>0){
+						vec_x.push_back(xi);
+						vec_y.push_back(yi);
+						vec_tL.push_back(tL);
+						vec_tR.push_back(tR);
+						vec_qL.push_back(qL);
+						vec_qR.push_back(qR);
+						vec_tAvg.push_back(tAvg);
+						double qAvg = sqrt(qL*qR);
+						vec_qAvg.push_back(qAvg);
+						vec_pos.push_back(position);
+					}//if q>0	
+				}//if t&q>0
+			}//y
+		}//x
+		nHits = max(vec_x.size(),vec_y.size());
+		if (nHits>0){
+			normEvtNum = (double(i)*1000000.0)/nEvents;
+			evtNum = int(i);
+			tHits->Fill();
 		}
-		normEvtNum = (double(i) * 1000000)/nEvents;
-
-	b_Time->Fill();
-	b_Pos->Fill();
-	b_Charge->Fill();
-	b_I->Fill();
-	b_R->Fill();
-	}
+		tCal->Fill();
+	}//loop
 	cout << endl << Form("done with run%d. Closing files.",runNumber) << endl;
 	//close files
+	
 	tCal->Write();
+	tHits->Write();
 	fCal->Close();
 	fRaw->Close();
 	
