@@ -7,6 +7,9 @@ void createCalibFile(int runNumber){
 	const int nWalls = 9;
 	const int nVert  = 16;
 	const int nSides = 2;
+	const double speedOfLight = 0.299792458; // m/ns
+	const double closestMidDistance = 8.066; // m
+	const double barThickness = 0.10; // m
 	//open raw file
 	TFile *fRaw = TFile::Open(Form("/mnt/analysis/e23033/analysis/kevin/uncalRootFiles/run%d_reglom.root",runNumber));
 	TTree *tRaw = (TTree*)fRaw->Get("t");
@@ -23,6 +26,18 @@ void createCalibFile(int runNumber){
 	//open charge params
 	TTree *chargeparams = new TTree("chargeparams","chargeparams");
 	chargeparams->ReadFile("/mnt/analysis/e23033/analysis/kevin/outputs/chargeCalibParams.csv","x/I:y/I:z/I:a/D:b/D:peak/D");
+
+	//open CFD params
+	TTree *cfdparams = new TTree("cfdparams","cfdparams");
+	cfdparams->ReadFile("/mnt/analysis/e23033/analysis/kevin/outputs/cfdWalkParams.csv","x/I:y/I:amplitude/D:slope/D:intercept/D:meanY/D:fitMin/D:fitMax/D");
+	
+	//open wall offsets 
+	TTree *wallOffsets = new TTree("wallOffsets","wallOffsets");
+	wallOffsets->ReadFile("/mnt/analysis/e23033/analysis/kevin/outputs/wallOffsetsMidBar.csv","x/I:y/I:offset/D");
+
+	//open gamma peak locations
+	TTree *gammaPeaks = new TTree("gammaPeaks","gammaPeaks");
+	gammaPeaks->ReadFile("/mnt/analysis/e23033/analysis/kevin/outputs/gammaPeaks.csv","x/I:y/I:peak/D");
 
 	//assign branch addresses
 	Long64_t nEvents = tRaw->GetEntries();
@@ -49,11 +64,40 @@ void createCalibFile(int runNumber){
 	chargeparams->SetBranchAddress("a",&aQ);
 	chargeparams->SetBranchAddress("b",&bQ);
 	
+	Long64_t nParams = cfdparams->GetEntries();
+	int xP; int yP; double amp; double slope; double intercept; double mean; double fitMin; double fitMax;
+	cfdparams->SetBranchAddress("x",&xP);
+	cfdparams->SetBranchAddress("y",&yP);
+	cfdparams->SetBranchAddress("amplitude",&amp);
+	cfdparams->SetBranchAddress("slope",&slope);
+	cfdparams->SetBranchAddress("intercept",&intercept);
+	cfdparams->SetBranchAddress("meanY",&mean);
+	cfdparams->SetBranchAddress("fitMin",&fitMin);
+	cfdparams->SetBranchAddress("fitMax",&fitMax);
+
+	Long64_t nOffsets = wallOffsets->GetEntries();
+	int oX; int oY; double oVal;
+	wallOffsets->SetBranchAddress("x", &oX);
+	wallOffsets->SetBranchAddress("y", &oY);
+	wallOffsets->SetBranchAddress("offset", &oVal);
+
+	Long64_t nPeaks = gammaPeaks->GetEntries();
+	int gX; int gY; double gPeak;
+	gammaPeaks->SetBranchAddress("x", &gX);
+	gammaPeaks->SetBranchAddress("y", &gY);
+	gammaPeaks->SetBranchAddress("peak", &gPeak);
+
+	//setup parameter arrays
 	double pulserSlopes[nPulsers];
 	double posSlopes[nPositions];
 	double posIntercepts[nPositions];
 	double chargeSlopes[nCharged];
 	double chargeIntercepts[nCharged];
+	double amps[nParams]; double slopes[nParams]; double ints[nParams];
+	double means[nParams]; double fitMins[nParams]; double fitMaxs[nParams];
+	vector<double> offsets(nWalls * nVert, 0.0);
+	vector<double> peaks(nWalls, 0.0);
+
 	//organize parameters into arrays
 	for (int i=0; i<nPulsers; i++){
 		pulserparams->GetEntry(i);
@@ -65,7 +109,6 @@ void createCalibFile(int runNumber){
 		int index = xPos*nVert + yPos;
 		posSlopes[index] = aPos;
 		posIntercepts[index] = bPos;
-
 	}
 	for (int i=0; i<nCharged; i++){
 		chargeparams->GetEntry(i);
@@ -73,21 +116,48 @@ void createCalibFile(int runNumber){
 		chargeSlopes[index]=aQ;
 		chargeIntercepts[index]=bQ;
 	}
+	for (int i=0; i<nParams; i++){
+		cfdparams->GetEntry(i);
+		int index = xP*nVert + yP;
+		amps[index] = amp; slopes[index] = slope; ints[index] = intercept;
+		means[index] = mean; fitMins[index] = fitMin; fitMaxs[index] = fitMax;
+	}
+	for (int i = 0; i<nOffsets; i++){
+		wallOffsets->GetEntry(i);
+		offsets[oX * nVert + oY] = oVal;
+	}
+	for (int i=0; i<nPeaks; i++){
+		gammaPeaks->GetEntry(i);
+		peaks[gX] = gPeak;
+	}	
+	//calculating offsets
+	vector<double> absoluteOffset(nWalls * nVert, 0.0);
+	for (int w = 0; w < nWalls; w++){
+		int    gammaBar  = (w != 8) ? 8 : 9;
+		double wallZ     = closestMidDistance + w * barThickness;
+		double gammaBarY = (gammaBar - 8) * barThickness;
+		double gammaToF0 = sqrt(wallZ*wallZ + gammaBarY*gammaBarY) / speedOfLight;
+		for (int y=0; y<nVert; y++){
+			int idx = w * nVert + y;
+			absoluteOffset[idx] = peaks[w] + gammaToF0 + offsets[idx];
+	    	}
+	}
 
 	//create new file
 	cout << "creating output calibrated file" << endl;
-	TFile *fCal = new TFile(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_MonaCal.root",runNumber),"RECREATE");
+	TFile *fCal = new TFile(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_MonaFull.root",runNumber),"RECREATE");
 	TTree *tCal = tRaw->CloneTree(0);
 	TTree *tHits = new TTree("tHits","Nonzero hits");
 
 	UShort_t time[2][18][16]; UShort_t light[2][18][16];
-	tRaw->SetBranchAddress("t[2][18][16]",time);
-	tRaw->SetBranchAddress("q[2][18][16]",light);
+	tRaw->SetBranchAddress("time[2][18][16]",time);
+	tRaw->SetBranchAddress("light[2][18][16]",light);
 
 	//set new branch addresses
 	std::vector<int> vec_x, vec_y;
-	std::vector<double> vec_tAvg, vec_qAvg, vec_pos;
+	std::vector<double> vec_tAvg, vec_tAvgCFDcorr, vec_qAvg, vec_pos;
 	std::vector<double> vec_tL, vec_tR, vec_qL, vec_qR;
+	std::vector<double> vec_tof, vec_beta;
 	double normEvtNum;
 	int evtNum;
 	int runNum = runNumber;
@@ -96,6 +166,9 @@ void createCalibFile(int runNumber){
 	tHits->Branch("x", &vec_x);
 	tHits->Branch("y", &vec_y);
 	tHits->Branch("tAvg", &vec_tAvg);
+	tHits->Branch("tAvgCFDcorr",&vec_tAvgCFDcorr);
+	tHits->Branch("tof",&vec_tof);
+	tHits->Branch("beta",&vec_beta);
 	tHits->Branch("qAvg", &vec_qAvg);
 	tHits->Branch("pos", &vec_pos);
 	tHits->Branch("tL", &vec_tL);
@@ -112,14 +185,15 @@ void createCalibFile(int runNumber){
 	int leftIndex, rightIndex; int truncIndex;
 	cout << "Events: " << nEvents << endl;
 
-
+	
 	for (Long64_t i=0; i<nEvents; i++){//loop
 		tRaw->GetEntry(i);
 
 		vec_x.clear(); vec_y.clear();
-    		vec_tAvg.clear(); vec_qAvg.clear(); vec_pos.clear();
+    		vec_tAvg.clear(); vec_qAvg.clear(); vec_pos.clear(); vec_tAvgCFDcorr.clear();
     		vec_tL.clear(); vec_tR.clear();
     		vec_qL.clear(); vec_qR.clear();
+		vec_tof.clear(); vec_beta.clear();
 
 		if (i%10000 == 0){cout << "\r" << i << flush;}
 		for (int xi=0; xi<nWalls; xi++){//x
@@ -147,8 +221,24 @@ void createCalibFile(int runNumber){
 						vec_qR.push_back(qR);
 						vec_tAvg.push_back(tAvg);
 						double qAvg = sqrt(qL*qR);
+						double tAvgCFDcorr;
+						if (qAvg >= fitMins[truncIndex] && qAvg <= fitMaxs[truncIndex]){
+							double CFDcorrection = means[truncIndex] - (amps[truncIndex] * TMath::Exp(-slopes[truncIndex] / qAvg) + ints[truncIndex]);
+							tAvgCFDcorr = tAvg + CFDcorrection;
+						}
+						else {tAvgCFDcorr = tAvg;}
 						vec_qAvg.push_back(qAvg);
+						vec_tAvgCFDcorr.push_back(tAvgCFDcorr);
 						vec_pos.push_back(position);
+						double hitX = position /100.0;//cm to m
+						double hitY = (yi-8) * barThickness; // m
+						double wallZ = closestMidDistance + xi*barThickness; // m (could cache above)
+						double hitDist = sqrt(wallZ*wallZ + hitY*hitY + hitX*hitX);
+						double tof = -tAvgCFDcorr + absoluteOffset[xi*nVert+yi];
+						double beta = (tof > 0) ? (hitDist/tof)/speedOfLight : -999.0;
+						vec_tof.push_back(tof);
+						vec_beta.push_back(beta);
+											
 					}//if q>0	
 				}//if t&q>0
 			}//y
