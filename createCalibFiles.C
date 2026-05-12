@@ -8,8 +8,8 @@ void createCalibFile(int runNumber){
 	const int nVert  = 16;
 	const int nSides = 2;
 	const double speedOfLight = 0.299792458; // m/ns
-	const double closestMidDistance = 8.066; // m
 	const double barThickness = 0.10; // m
+	const double closestMidDistance = 8.066 + (0.5 * barThickness); // m, middle of bar
 	//open raw file
 	TFile *fRaw = TFile::Open(Form("/mnt/analysis/e23033/analysis/kevin/uncalRootFiles/run%d_reglom.root",runNumber));
 	TTree *tRaw = (TTree*)fRaw->Get("t");
