@@ -145,7 +145,7 @@ void createCalibFile(int runNumber){
 
 	//create new file
 	cout << "creating output calibrated file" << endl;
-	TFile *fCal = new TFile(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_MonaFull.root",runNumber),"RECREATE");
+	TFile *fCal = new TFile(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_MonaFull_FILENAME.root",runNumber),"RECREATE");
 	TTree *tCal = tRaw->CloneTree(0);
 	TTree *tHits = new TTree("tHits","Nonzero hits");
 
