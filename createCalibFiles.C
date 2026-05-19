@@ -228,7 +228,7 @@ void createCalibFile(int runNumber){
 					double qL = chargeSlopes[leftIndex]*light[0][xi][yi]+chargeIntercepts[leftIndex];
 					double qR = chargeSlopes[rightIndex]*light[1][xi][yi]+chargeIntercepts[rightIndex];
 					
-					double position = posSlopes[truncIndex]*(tL - tR)+posIntercepts[truncIndex];
+					double position = -(posSlopes[truncIndex]*(tL - tR)+posIntercepts[truncIndex]);
 					double tAvg = (tL+tR)/2.0;
 					
 					if (qL>0 && qR>0){
