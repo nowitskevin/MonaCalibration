@@ -2,6 +2,7 @@
 // Kevin Eisenberg, 2026
 #include <vector>
 #include <cmath>
+#include <numeric>
 
 void createCalibFile(int runNumber){
 	const int nWalls = 9;
@@ -10,6 +11,9 @@ void createCalibFile(int runNumber){
 	const double speedOfLight = 0.299792458; // m/ns
 	const double barThickness = 0.10; // m
 	const double closestMidDistance = 8.066 + (0.5 * barThickness); // m, middle of bar
+	const double neutronMass = 939.56542; //MeV/c^2
+	const double pi = 3.1415926535897932384626433;	
+	
 	//open raw file
 	TFile *fRaw = TFile::Open(Form("/mnt/analysis/e23033/analysis/kevin/uncalRootFiles/run%d_reglom.root",runNumber));
 	TTree *tRaw = (TTree*)fRaw->Get("t");
@@ -145,9 +149,8 @@ void createCalibFile(int runNumber){
 
 	//create new file
 	cout << "creating output calibrated file" << endl;
-	TFile *fCal = new TFile(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_MonaFull_FILENAME.root",runNumber),"RECREATE");
-	TTree *tCal = tRaw->CloneTree(0);
-	TTree *tHits = new TTree("tHits","Nonzero hits");
+	TFile *fCal = new TFile(Form("/mnt/analysis/e23033/analysis/kevin/rootfiles/run%d_MonaFull.root",runNumber),"RECREATE");
+	TTree *tMona = new TTree("tMona","Nonzero hits");
 
 	UShort_t time[2][18][16]; UShort_t light[2][18][16];
 	tRaw->SetBranchAddress("time[2][18][16]",time);
@@ -155,30 +158,43 @@ void createCalibFile(int runNumber){
 
 	//set new branch addresses
 	std::vector<int> vec_x, vec_y;
-	std::vector<double> vec_tAvg, vec_tAvgCFDcorr, vec_qAvg, vec_pos;
-	std::vector<double> vec_tL, vec_tR, vec_qL, vec_qR;
-	std::vector<double> vec_tof, vec_beta;
+	//std::vector<double> vec_tAvg, 
+	std::vector<double> vec_tAvgCFDcorr, vec_qAvg, vec_Xpos, vec_Ypos, vec_Zpos, vec_dist;
+	//std::vector<double> vec_tL, vec_tR, vec_qL, vec_qR;
+	std::vector<double> vec_tof, vec_beta, vec_gamma;
+	std::vector<double> vec_E, vec_p, vec_px, vec_py, vec_pz, vec_th, vec_ph;
 	double normEvtNum;
 	int evtNum;
 	int runNum = runNumber;
 	int nHits;  // multiplicity - handy to have
 
-	tHits->Branch("x", &vec_x);
-	tHits->Branch("y", &vec_y);
-	tHits->Branch("tAvg", &vec_tAvg);
-	tHits->Branch("tAvgCFDcorr",&vec_tAvgCFDcorr);
-	tHits->Branch("tof",&vec_tof);
-	tHits->Branch("beta",&vec_beta);
-	tHits->Branch("qAvg", &vec_qAvg);
-	tHits->Branch("pos", &vec_pos);
-	tHits->Branch("tL", &vec_tL);
-	tHits->Branch("tR", &vec_tR);
-	tHits->Branch("qL", &vec_qL);
-	tHits->Branch("qR", &vec_qR);
-	tHits->Branch("nHits", &nHits, "nHits/I");
-	tHits->Branch("normEvtNum", &normEvtNum, "normEvtNum/D");
-	tHits->Branch("evtNum", &evtNum, "evtNum/I");
-	tHits->Branch("runNum", &runNum, "runNum/I");
+	tMona->Branch("xInd", &vec_x); //index of bar wall
+	tMona->Branch("yInd", &vec_y); //index of bar height
+	//tMona->Branch("tAvg", &vec_tAvg);
+	//tMona->Branch("tAvgCFDcorr",&vec_tAvgCFDcorr);
+	tMona->Branch("tof",&vec_tof);
+	tMona->Branch("beta",&vec_beta);
+	tMona->Branch("gamma",&vec_gamma);
+	tMona->Branch("qAvg", &vec_qAvg);
+	tMona->Branch("Xpos", &vec_Xpos); //geometric x position along the bar (cm)
+	tMona->Branch("Ypos",&vec_Ypos); //geometric y position vertically (cm) 
+	tMona->Branch("Zpos",&vec_Zpos); //geometric z position along the beam axis (cm)
+	tMona->Branch("dist",&vec_dist); //flight path
+	tMona->Branch("E",&vec_E);
+	tMona->Branch("p",&vec_p);
+	tMona->Branch("px",&vec_px);
+	tMona->Branch("py",&vec_py);
+	tMona->Branch("pz",&vec_pz);
+	tMona->Branch("theta",&vec_th);
+	tMona->Branch("phi",&vec_ph);
+	//tMona->Branch("tL", &vec_tL);
+	//tMona->Branch("tR", &vec_tR);
+	//tMona->Branch("qL", &vec_qL);
+	//tMona->Branch("qR", &vec_qR);
+	tMona->Branch("nHits", &nHits, "nHits/I");
+	tMona->Branch("normEvtNum", &normEvtNum, "normEvtNum/D");
+	tMona->Branch("evtNum", &evtNum, "evtNum/I");
+	tMona->Branch("runNum", &runNum, "runNum/I");
 		
 	//main loop
 	cout << "beginning calibrations. Events calibrated:" << endl;
@@ -190,10 +206,13 @@ void createCalibFile(int runNumber){
 		tRaw->GetEntry(i);
 
 		vec_x.clear(); vec_y.clear();
-    		vec_tAvg.clear(); vec_qAvg.clear(); vec_pos.clear(); vec_tAvgCFDcorr.clear();
-    		vec_tL.clear(); vec_tR.clear();
-    		vec_qL.clear(); vec_qR.clear();
-		vec_tof.clear(); vec_beta.clear();
+    		//vec_tAvg.clear(); 
+		vec_qAvg.clear(); 
+		vec_Xpos.clear(); vec_tAvgCFDcorr.clear(); vec_Ypos.clear(); vec_Zpos.clear(); 			vec_dist.clear();
+    		//vec_tL.clear(); vec_tR.clear();
+    		//vec_qL.clear(); vec_qR.clear();
+		vec_tof.clear(); vec_beta.clear(); vec_gamma.clear();
+		vec_E.clear(); vec_p.clear(); vec_px.clear(); vec_py.clear(); vec_pz.clear(); vec_th.clear(); vec_ph.clear();
 
 		if (i%10000 == 0){cout << "\r" << i << flush;}
 		for (int xi=0; xi<nWalls; xi++){//x
@@ -215,11 +234,11 @@ void createCalibFile(int runNumber){
 					if (qL>0 && qR>0){
 						vec_x.push_back(xi);
 						vec_y.push_back(yi);
-						vec_tL.push_back(tL);
-						vec_tR.push_back(tR);
-						vec_qL.push_back(qL);
-						vec_qR.push_back(qR);
-						vec_tAvg.push_back(tAvg);
+						//vec_tL.push_back(tL);
+						//vec_tR.push_back(tR);
+						//vec_qL.push_back(qL);
+						//vec_qR.push_back(qR);
+						//vec_tAvg.push_back(tAvg);
 						double qAvg = sqrt(qL*qR);
 						double tAvgCFDcorr;
 						if (qAvg >= fitMins[truncIndex] && qAvg <= fitMaxs[truncIndex]){
@@ -229,15 +248,38 @@ void createCalibFile(int runNumber){
 						else {tAvgCFDcorr = tAvg;}
 						vec_qAvg.push_back(qAvg);
 						vec_tAvgCFDcorr.push_back(tAvgCFDcorr);
-						vec_pos.push_back(position);
+						vec_Xpos.push_back(position); 
 						double hitX = position /100.0;//cm to m
 						double hitY = (yi-8) * barThickness; // m
 						double wallZ = closestMidDistance + xi*barThickness; // m (could cache above)
+						vec_Ypos.push_back(hitY*100.0);
+						vec_Zpos.push_back(wallZ*100.0);
 						double hitDist = sqrt(wallZ*wallZ + hitY*hitY + hitX*hitX);
+						vec_dist.push_back(hitDist*100.0);
 						double tof = -tAvgCFDcorr + absoluteOffset[xi*nVert+yi];
 						double beta = (tof > 0) ? (hitDist/tof)/speedOfLight : -999.0;
+						double gamma = (beta > 0 && beta < 0.9999) ? 1.0 / sqrt(1.0 - beta*beta) : -999.0;
+						double E = -999.0; double p = -999.0; double px = -999.0; double py = -999.0; double pz = -999.0; double theta = -999.0; double phi = -999.0;
+						if (gamma > 0){
+							E = gamma * neutronMass;
+							p = gamma * neutronMass * beta;
+							theta = acos(wallZ/hitDist); //angle above beam axis
+							phi = atan2(hitX,hitY); //azimuthal rotation around beam axis from -pi to pi, 0 pointing in +Y
+							px = p*sin(theta)*sin(phi);
+							py = p*sin(theta)*cos(phi);
+							pz = p*cos(theta);
+						}
+						
 						vec_tof.push_back(tof);
 						vec_beta.push_back(beta);
+						vec_gamma.push_back(gamma);
+						vec_E.push_back(E);
+						vec_p.push_back(p);
+						vec_px.push_back(px);
+						vec_py.push_back(py);
+						vec_pz.push_back(pz);
+						vec_th.push_back(theta*180/pi);
+						vec_ph.push_back(phi*180/pi);
 											
 					}//if q>0	
 				}//if t&q>0
@@ -247,15 +289,26 @@ void createCalibFile(int runNumber){
 		if (nHits>0){
 			normEvtNum = (double(i)*1000000.0)/nEvents;
 			evtNum = int(i);
-			tHits->Fill();
+			if (nHits>1){ //SORT VECTORS BY INCREASING TOF... lambda funcs 
+				vector<int> indVector(nHits);
+				std::iota(indVector.begin(), indVector.end(), 0); //index vector
+
+				sort(indVector.begin(), indVector.end(), [&](int a, int b){
+					return vec_tof[a]<vec_tof[b];
+				});
+
+				auto sortByTof = [&](auto& vec){
+					auto temp = vec; //create temporary copy and pass by ref
+					for (int i=0; i<nHits; i++) vec[i] = temp[indVector[i]];
+				};
+				sortByTof(vec_x); sortByTof(vec_y); sortByTof(vec_tof); sortByTof(vec_qAvg); sortByTof(vec_Xpos); sortByTof(vec_Ypos); sortByTof(vec_Zpos); sortByTof(vec_dist); sortByTof(vec_beta); sortByTof(vec_gamma); sortByTof(vec_E); sortByTof(vec_p); sortByTof(vec_px); sortByTof(vec_py); sortByTof(vec_pz); sortByTof(vec_th); sortByTof(vec_ph);
+ 			}
+			tMona->Fill();
 		}
-		tCal->Fill();
 	}//loop
 	cout << endl << Form("done with run%d. Closing files.",runNumber) << endl;
 	//close files
-	
-	tCal->Write();
-	tHits->Write();
+	tMona->Write();
 	fCal->Close();
 	fRaw->Close();
 	
